@@ -1,4 +1,6 @@
 """管理 API 路由 — 文档入库、统计"""
+import time
+_start_time = time.time()
 from fastapi import APIRouter, Request, UploadFile, File
 from ..models.schemas import StatsResponse, IngestResponse
 from ..rag.vector_store import VectorStore
@@ -55,4 +57,13 @@ def stats():
 
 @router.get("/health")
 def health(request: Request):
-    return {"status": "ok", "startup_time": request.app.state.startup_time}
+    from ..api.query import get_queue_status
+
+    qs = get_queue_status()
+    return {
+        "status": "ok",
+        "startup_time": request.app.state.startup_time,
+        "uptime_seconds": round(time.time() - _start_time, 1),
+        "models_loaded": qs["embedder_loaded"] and qs["reranker_loaded"],
+        "queue_depth": qs["queue_depth"],
+    }

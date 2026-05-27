@@ -1,6 +1,8 @@
 """查询 API 路由"""
+import os
 import time
-from fastapi import APIRouter
+import asyncio
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from ..models.schemas import QueryRequest, QueryStreamRequest, QueryResponse, Source
 from ..rag.embedder import OllamaEmbedder
@@ -25,29 +27,61 @@ def get_retriever():
     return _retriever
 
 
+# 请求队列（单模型串行推理）
+_queue: asyncio.Queue | None = None
+MAX_QUEUE_SIZE = int(os.getenv("MAX_QUEUE_SIZE", "10"))
+
+
+def _get_queue() -> asyncio.Queue:
+    global _queue
+    if _queue is None:
+        _queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+    return _queue
+
+
+async def _enqueue_request(question: str, mode: str, top_k: int) -> dict:
+    """将请求加入队列并等待执行结果"""
+    queue = _get_queue()
+    loop = asyncio.get_event_loop()
+    result_future: asyncio.Future = loop.create_future()
+
+    try:
+        queue.put_nowait((question, mode, top_k, result_future))
+    except asyncio.QueueFull:
+        raise HTTPException(status_code=503, detail="服务器繁忙，请稍后重试")
+
+    return await result_future
+
+
+async def _process_queue():
+    """后台协程：消费请求队列"""
+    queue = _get_queue()
+    retriever = get_retriever()  # 触发模型加载
+    while True:
+        question, mode, top_k, future = await queue.get()
+        try:
+            collection = "error_logs" if mode == "error_logs" else "knowledge_base"
+            sources = retriever.retrieve(question, collection, top_k)
+            if not sources and mode == "knowledge_base":
+                sources = retriever.retrieve(question, "error_logs", top_k)
+                mode = "error_logs" if sources else mode
+            result = generate(question, sources, mode)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+
+
 @router.post("/query", response_model=QueryResponse)
-def query_kb(req: QueryRequest):
+async def query_kb(req: QueryRequest):
     """知识库问答"""
     t0 = time.time()
-    retriever = get_retriever()
 
-    # 确定检索目标
     if req.mode == "auto":
         mode = _route(req.question)
     else:
         mode = req.mode
 
-    # 检索
-    collection = "error_logs" if mode == "error_logs" else "knowledge_base"
-    sources = retriever.retrieve(req.question, collection, req.top_k)
-
-    # 如果知识库没找到，尝试报错库
-    if not sources and mode == "knowledge_base":
-        sources = retriever.retrieve(req.question, "error_logs", req.top_k)
-        mode = "error_logs" if sources else mode
-
-    # 生成
-    result = generate(req.question, sources, mode)
+    result = await _enqueue_request(req.question, mode, req.top_k)
     latency = (time.time() - t0) * 1000
 
     return QueryResponse(
@@ -128,3 +162,12 @@ async def query_kb_stream(req: QueryStreamRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def get_queue_status() -> dict:
+    """返回当前队列和模型状态，供 admin.py 健康检查调用"""
+    return {
+        "embedder_loaded": _embedder is not None and _embedder.is_loaded,
+        "reranker_loaded": _retriever is not None and Retriever._reranker is not None,
+        "queue_depth": _get_queue().qsize(),
+    }
