@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 
 PYTHON = r"D:\Anaconda3\python.exe"
-LLAMA_SERVER = r"D:\llama-cpp-vulkan\llama-server.exe"
+LLAMA_SERVER = r"D:\llama-cpp-cuda\llama-server.exe"
 MODEL = r"D:\Qwen2.5-3B-Instruct-GGUF\qwen2.5-3b-instruct-q4_k_m.gguf"
 PROJECT = Path(__file__).resolve().parent
 
@@ -39,8 +39,8 @@ def main():
             "-m", MODEL,
             "--host", "127.0.0.1",
             "--port", "8080",
-            "-c", "4096",
-            "-ngl", "99",
+            "-c", "2048",
+            "-ngl", "36",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

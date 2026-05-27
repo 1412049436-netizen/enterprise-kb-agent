@@ -14,7 +14,7 @@ LLM_MODEL_PATH = str(MODEL_ROOT / os.getenv("LLM_MODEL_DIR", "Qwen2.5-3B-Instruc
 LLM_GGUF_PATH = str(MODEL_ROOT / os.getenv("LLM_GGUF_DIR", "Qwen2.5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_m.gguf"))
 
 # ── LLM 推理服务 (llama.cpp) ─────────────────────────
-LLAMA_SERVER_BIN = str(MODEL_ROOT / os.getenv("LLAMA_SERVER_BIN", "llama-cpp-vulkan/llama-server.exe"))
+LLAMA_SERVER_BIN = str(MODEL_ROOT / os.getenv("LLAMA_SERVER_BIN", "llama-cpp-cuda/llama-server.exe"))
 LLAMA_SERVER_URL = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080/v1/completions")
 
 # ── 生成参数 ─────────────────────────────────────────
