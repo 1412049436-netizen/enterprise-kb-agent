@@ -24,7 +24,7 @@ GENERATION_TIMEOUT = int(os.getenv("GENERATION_TIMEOUT", "180"))
 
 EMBEDDING_MODEL_PATH = str(MODEL_ROOT / os.getenv("EMBEDDING_MODEL_DIR", "bge-m3"))
 RERANKER_MODEL_PATH = str(MODEL_ROOT / os.getenv("RERANKER_MODEL_DIR", "bge-reranker-v2-m3"))
-DEVICE = os.getenv("DEVICE", None)  # None=auto, or "cpu"/"cuda"
+DEVICE = os.getenv("DEVICE", "cpu")  # 默认 CPU，避免与 llama-server 抢 GPU 显存
 
 # ── Chunking 参数 ────────────────────────────────────
 # 文档解析时的核心参数

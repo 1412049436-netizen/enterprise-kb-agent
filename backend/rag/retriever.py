@@ -71,7 +71,7 @@ class Retriever:
     @classmethod
     def _get_reranker(cls):
         if cls._reranker is None:
-            cls._reranker = CrossEncoder(RERANKER_MODEL_PATH)
+            cls._reranker = CrossEncoder(RERANKER_MODEL_PATH, device="cpu")
         return cls._reranker
 
     def _rerank(
