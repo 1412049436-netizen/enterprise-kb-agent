@@ -11,7 +11,8 @@ from .config import API_PORT
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.startup_time = datetime.datetime.now().isoformat()
-    logger.info(f"Backend starting at {app.state.startup_time}")
+    app.state.models_loaded = False
+    logger.info(f"Backend starting at {app.state.startup_time} (models will load on first request)")
     yield
 
 

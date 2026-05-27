@@ -1,19 +1,26 @@
 """本地嵌入模型封装 — 基于 FlagEmbedding BGE-M3"""
 from loguru import logger
-from FlagEmbedding import BGEM3FlagModel
 from ..config import EMBEDDING_MODEL_PATH
 
 
 class OllamaEmbedder:
-    """本地嵌入模型封装，兼容原有接口名"""
+    """本地嵌入模型封装，首次调用 embed() 时才加载模型"""
 
     def __init__(self, model_path: str | None = None):
-        path = model_path or EMBEDDING_MODEL_PATH
-        logger.info(f"加载嵌入模型: {path}")
-        self.model = BGEM3FlagModel(path, use_fp16=False)
+        self._model_path = model_path or EMBEDDING_MODEL_PATH
+        self.model = None
+
+    def _ensure_loaded(self):
+        if self.model is not None:
+            return
+        logger.info(f"加载嵌入模型: {self._model_path}")
+        from FlagEmbedding import BGEM3FlagModel
+        self.model = BGEM3FlagModel(self._model_path, use_fp16=False)
+        logger.info("嵌入模型加载完成")
 
     def embed(self, texts: list[str]) -> list[dict]:
         """批量嵌入文本 → [{"dense": ..., "sparse": ...}, ...]"""
+        self._ensure_loaded()
         results = self.model.encode(
             texts,
             return_dense=True,
@@ -34,9 +41,11 @@ class OllamaEmbedder:
         return output
 
     def embed_query(self, text: str) -> dict:
-        """嵌入单个查询文本 → {"dense": ..., "sparse": ...}"""
         return self.embed([text])[0]
 
     def embed_documents(self, texts: list[str]) -> list[dict]:
-        """嵌入文档列表 → [{"dense": ..., "sparse": ...}, ...]"""
         return self.embed(texts)
+
+    @property
+    def is_loaded(self) -> bool:
+        return self.model is not None
