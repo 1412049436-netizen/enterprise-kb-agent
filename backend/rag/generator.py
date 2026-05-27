@@ -1,4 +1,5 @@
 """LLM 生成模块 — 通过 llama-server HTTP API 调用 (OpenAI 兼容)"""
+import json
 import re
 import httpx
 from loguru import logger
@@ -155,14 +156,18 @@ def generate_stream(
                     if data_str.strip() == "[DONE]":
                         break
                     try:
-                        import json
                         chunk = json.loads(data_str)
                         token = chunk["choices"][0].get("text", "")
                         full_response += token
                         yield token
-                    except Exception:
+                    except (json.JSONDecodeError, KeyError, IndexError):
                         continue
 
     except Exception as e:
         logger.error(f"流式生成失败: {e}")
         yield f"\n[生成失败: {str(e)}]"
+    else:
+        # 检查并截断流式输出中的幻觉内容
+        cleaned = _clean_response(full_response)
+        if cleaned != full_response:
+            logger.info(f"流式输出检测到幻觉模式，原始 {len(full_response)} chars → 清理后 {len(cleaned)} chars")
