@@ -68,12 +68,7 @@ def generate(
         data = resp.json()
         response = data["choices"][0]["text"].strip()
 
-        # 截断自问自答幻觉
-        cut = re.search(r"(Human|Assistant|User|用户)[：:] ", response)
-        if not cut:
-            cut = re.search(r"\n(问题|提问|文档：|根据\[来源)", response)
-        if cut:
-            response = response[: cut.start()].strip()
+        response = _clean_response(response)
 
         usage = data.get("usage", {})
         return {
@@ -94,3 +89,80 @@ def generate(
             "tokens": 0,
             "tokens_per_second": 0,
         }
+
+
+def _clean_response(response: str) -> str:
+    """截断自问自答幻觉"""
+    cut = re.search(r"(Human|Assistant|User|用户)[：:] ", response)
+    if not cut:
+        cut = re.search(r"\n(问题|提问|文档：|根据\[来源)", response)
+    if cut:
+        response = response[:cut.start()].strip()
+    return response
+
+
+def generate_stream(
+    query: str,
+    sources: list[dict],
+    mode: str = "knowledge_base",
+    temperature: float = 0.1,
+    max_tokens: int | None = None,
+):
+    """流式生成，逐 token yield 字符串"""
+    ctx = build_context(sources)
+
+    if mode == "error_logs":
+        system_prompt = ERROR_SYSTEM_PROMPT
+        temperature = 0.2
+        max_tokens = max_tokens or ERROR_MAX_TOKENS
+    else:
+        system_prompt = KB_SYSTEM_PROMPT
+        max_tokens = max_tokens or KB_MAX_TOKENS
+
+    user_prompt = f"""文档：
+{ctx}
+
+问题：{query}
+
+回答："""
+
+    full_prompt = (
+        f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
+        f"<|im_start|>user\n{user_prompt}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
+
+    full_response = ""
+
+    try:
+        with httpx.stream(
+            "POST",
+            LLAMA_SERVER_URL,
+            json={
+                "prompt": full_prompt,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "top_p": 0.9,
+                "repeat_penalty": 1.15,
+                "stop": ["<|im_end|>", "<|im_start|>"],
+                "stream": True,
+            },
+            timeout=GENERATION_TIMEOUT,
+        ) as resp:
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        import json
+                        chunk = json.loads(data_str)
+                        token = chunk["choices"][0].get("text", "")
+                        full_response += token
+                        yield token
+                    except Exception:
+                        continue
+
+    except Exception as e:
+        logger.error(f"流式生成失败: {e}")
+        yield f"\n[生成失败: {str(e)}]"
