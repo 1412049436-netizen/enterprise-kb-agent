@@ -6,15 +6,56 @@ import os
 
 API_BASE = os.environ.get("API_BASE", "http://localhost:8000")
 
+# 全局 token（单用户部署够用）
+_token: str | None = None
 
-def query_api(message: str, mode: str, top_k: int, history: list):
+
+def _headers() -> dict:
+    """返回带 token 的请求头"""
+    if _token:
+        return {"Authorization": f"Bearer {_token}"}
+    return {}
+
+
+def login_api(username: str, password: str) -> str:
+    """登录并返回状态消息"""
+    global _token
+    try:
+        resp = httpx.post(
+            f"{API_BASE}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            _token = resp.json()["access_token"]
+            return f"✅ 登录成功: {username}"
+        else:
+            detail = resp.json().get("detail", "未知错误")
+            return f"❌ 登录失败: {detail}"
+    except Exception as e:
+        return f"❌ 连接失败: {e}"
+
+
+def logout_api() -> str:
+    """退出登录"""
+    global _token
+    _token = None
+    return "已退出登录"
+
+
+def query_api(message: str, mode: str, top_k: int, history: list) -> str:
     api_mode = {"知识库问答": "knowledge_base", "报错排查": "error_logs", "自动识别": "auto"}[mode]
     try:
         resp = httpx.post(
             f"{API_BASE}/api/query",
             json={"question": message, "mode": api_mode, "top_k": top_k},
+            headers=_headers(),
             timeout=180,
         )
+        if resp.status_code == 401:
+            return "⚠️ 请先登录（左侧输入账号密码）"
+        if resp.status_code == 403:
+            return "⛔ 权限不足"
         data = resp.json()
         answer = data["answer"]
         if data.get("sources"):
@@ -28,55 +69,40 @@ def query_api(message: str, mode: str, top_k: int, history: list):
         return f"请求失败: {e}"
 
 
-def query_api_stream(message: str, mode: str, top_k: int, history: list):
-    """流式查询 API，逐 token yield 累积回答"""
-    api_mode = {"知识库问答": "knowledge_base", "报错排查": "error_logs", "自动识别": "auto"}[mode]
-    answer = ""
-    sources_info = ""
-
-    try:
-        with httpx.stream(
-            "POST",
-            f"{API_BASE}/api/query/stream",
-            json={"question": message, "mode": api_mode, "top_k": top_k},
-            timeout=180,
-        ) as resp:
-            for line in resp.iter_lines():
-                if line.startswith("data: "):
-                    data = json.loads(line[6:])
-                    if data.get("done"):
-                        sources = data.get("sources", [])
-                        if sources:
-                            sources_info = "\n\n---\n**参考来源：**\n" + "\n".join(f"- {s}" for s in sources)
-                        yield answer + sources_info
-                        return
-                    elif data.get("error"):
-                        yield f"请求失败: {data['error']}"
-                        return
-                    else:
-                        answer += data.get("token", "")
-                        yield answer
-    except Exception as e:
-        yield f"请求失败: {e}"
-
-
 with gr.Blocks(title="企业知识库助手") as demo:
-    gr.Markdown("""# 📚 企业知识库问答系统\n完全离线运行 · 基于 RAG 架构 · 支持知识库问答和报错排查""")
+    gr.Markdown("""# 📚 企业知识库问答系统
+完全离线运行 · 基于 RAG 架构 · 支持知识库问答和报错排查""")
 
     with gr.Row():
+        # ── 左侧：登录 + 设置 ──
         with gr.Column(scale=1):
+            gr.Markdown("### 🔐 登录")
+            login_user = gr.Textbox(label="用户名", value="admin")
+            login_pass = gr.Textbox(label="密码", type="password", value="admin123")
+            with gr.Row():
+                login_btn = gr.Button("登录", variant="primary", size="sm")
+                logout_btn = gr.Button("退出", size="sm")
+            login_status = gr.Markdown("")
+
+            gr.Markdown("---")
+
             mode = gr.Radio(["自动识别", "知识库问答", "报错排查"], label="问答模式", value="自动识别")
             top_k = gr.Slider(1, 10, value=4, step=1, label="检索数量")
-            gr.Markdown("### 使用说明\n- **知识库问答**: 查询文档中的信息\n- **报错排查**: 匹配历史错误解决方案\n- **自动识别**: 系统自动判断查询类型")
             stats_btn = gr.Button("检查状态")
             stats_box = gr.Markdown("")
 
+        # ── 右侧：对话区 ──
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(label="对话", height=500)
+            chatbot = gr.Chatbot(label="对话", height=450)
             msg = gr.Textbox(label="输入你的问题", placeholder="例如：请假流程是什么？", lines=2)
             with gr.Row():
                 send_btn = gr.Button("发送", variant="primary")
                 clear_btn = gr.Button("清空对话")
+
+    # ── 事件绑定 ──
+
+    login_btn.click(login_api, [login_user, login_pass], [login_status])
+    logout_btn.click(logout_api, None, [login_status])
 
     def respond(message, chat_history, mode, top_k):
         if not message.strip():
@@ -92,10 +118,18 @@ with gr.Blocks(title="企业知识库助手") as demo:
 
     def check_stats():
         try:
-            r = httpx.get(f"{API_BASE}/api/admin/stats", timeout=5)
+            r = httpx.get(
+                f"{API_BASE}/api/admin/stats",
+                headers=_headers(),
+                timeout=5,
+            )
+            if r.status_code == 401:
+                return "⚠️ 请先登录（需要管理员权限）"
+            if r.status_code == 403:
+                return "⛔ 需要管理员权限"
             d = r.json()
             return f"**知识库:** {d['knowledge_base_chunks']} chunks · **报错库:** {d['error_logs_chunks']} 条"
-        except:
+        except Exception:
             return "后端未连接"
 
     stats_btn.click(check_stats, None, stats_box)
