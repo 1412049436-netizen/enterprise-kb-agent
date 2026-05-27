@@ -1,5 +1,4 @@
 """LLM 生成模块 — 通过 llama-server HTTP API 调用 (OpenAI 兼容)"""
-import os
 import re
 import httpx
 from loguru import logger
