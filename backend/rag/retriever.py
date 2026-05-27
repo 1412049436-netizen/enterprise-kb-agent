@@ -3,7 +3,7 @@ from loguru import logger
 from sentence_transformers import CrossEncoder
 from .embedder import OllamaEmbedder
 from .vector_store import VectorStore
-from ..config import TOP_K_RETRIEVAL, TOP_K_FINAL, SIMILARITY_THRESHOLD, RERANKER_MODEL_PATH
+from ..config import TOP_K_RETRIEVAL, TOP_K_FINAL, SIMILARITY_THRESHOLD, DENSE_WEIGHT, SPARSE_WEIGHT, RERANKER_MODEL_PATH
 
 
 class Retriever:
@@ -54,14 +54,14 @@ class Retriever:
                 entry = dense_map[content_key]
                 dense_score = 1.0 - entry["distance"]
                 sparse_score = score
-                final_score = 0.7 * dense_score + 0.3 * sparse_score
+                final_score = DENSE_WEIGHT * dense_score + SPARSE_WEIGHT * sparse_score
                 entry["distance"] = 1.0 - final_score
 
         if not candidates:
             return []
 
         # 过滤低分候选
-        candidates = [c for c in candidates if 1.0 - c["distance"] >= 0.20]
+        candidates = [c for c in candidates if 1.0 - c["distance"] >= SIMILARITY_THRESHOLD]
 
         candidates.sort(key=lambda x: x["distance"])
 

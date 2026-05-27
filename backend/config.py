@@ -37,6 +37,10 @@ TOP_K_RETRIEVAL = int(os.getenv("TOP_K_RETRIEVAL", "8"))           # 向量检�
 TOP_K_FINAL = int(os.getenv("TOP_K_FINAL", "4"))                   # Rerank后最终保留
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.20"))
 
+# ── Dense + Sparse 融合 ──────────────────────────────
+DENSE_WEIGHT = float(os.getenv("DENSE_WEIGHT", "0.7"))
+SPARSE_WEIGHT = float(os.getenv("SPARSE_WEIGHT", "0.3"))
+
 # ── 数据路径 ─────────────────────────────────────────
 DATA_DIR = BASE_DIR / "data"
 KNOWLEDGE_BASE_DIR = DATA_DIR / "knowledge_base"
