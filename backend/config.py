@@ -26,6 +26,11 @@ EMBEDDING_MODEL_PATH = str(MODEL_ROOT / os.getenv("EMBEDDING_MODEL_DIR", "bge-m3
 RERANKER_MODEL_PATH = str(MODEL_ROOT / os.getenv("RERANKER_MODEL_DIR", "bge-reranker-v2-m3"))
 DEVICE = os.getenv("DEVICE", "cpu")  # 默认 CPU，避免与 llama-server 抢 GPU 显存
 
+# ── JWT 认证配置 ─────────────────────────────────────
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
+
 # ── Chunking 参数 ────────────────────────────────────
 # 文档解析时的核心参数
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))        # 每个chunk的字符数（中文600字≈1200 tokens边距）
