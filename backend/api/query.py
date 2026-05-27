@@ -125,8 +125,11 @@ def _route(query: str) -> str:
 async def query_kb_stream(req: QueryStreamRequest):
     """知识库问答 — SSE 流式输出"""
     import json as json_module
+    from loguru import logger
+    t_start = time.time()
 
     retriever = get_retriever()
+    t_get_retriever = time.time()
 
     if req.mode == "auto":
         mode = _route(req.question)
@@ -135,21 +138,34 @@ async def query_kb_stream(req: QueryStreamRequest):
 
     collection = "error_logs" if mode == "error_logs" else "knowledge_base"
     sources = retriever.retrieve(req.question, collection, req.top_k)
+    t_retrieve = time.time()
 
     if not sources and mode == "knowledge_base":
         sources = retriever.retrieve(req.question, "error_logs", req.top_k)
         mode = "error_logs" if sources else mode
 
+    logger.info(f"[TIMING] get_retriever={t_get_retriever - t_start:.1f}s, "
+                f"retrieve={t_retrieve - t_get_retriever:.1f}s, "
+                f"total_before_stream={t_retrieve - t_start:.1f}s, "
+                f"sources={len(sources)}")
+
     async def event_stream():
         full_answer = ""
+        t_stream_start = time.time()
+        first_token = None
         try:
             for token in generate_stream(req.question, sources, mode):
+                if first_token is None:
+                    first_token = time.time()
+                    logger.info(f"[TIMING] first_token_after={first_token - t_stream_start:.1f}s")
                 full_answer += token
                 yield f"data: {json_module.dumps({'token': token})}\n\n"
         except Exception as e:
             yield f"data: {json_module.dumps({'error': str(e)})}\n\n"
         finally:
-            # Apply hallucination cleanup to the assembled response
+            t_done = time.time()
+            logger.info(f"[TIMING] stream_total={t_done - t_stream_start:.1f}s, "
+                        f"total_request={t_done - t_start:.1f}s")
             from ..rag.generator import _clean_response
             cleaned = _clean_response(full_answer)
             yield f"data: {json_module.dumps({'done': True, 'full_answer': cleaned, 'sources': [s['title'] for s in sources]})}\n\n"

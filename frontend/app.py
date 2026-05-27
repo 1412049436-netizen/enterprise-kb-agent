@@ -80,15 +80,11 @@ with gr.Blocks(title="企业知识库助手") as demo:
 
     def respond(message, chat_history, mode, top_k):
         if not message.strip():
-            yield "", chat_history
-            return
-
+            return "", chat_history
+        answer = query_api(message, mode, top_k, chat_history)
         chat_history.append({"role": "user", "content": message})
-        chat_history.append({"role": "assistant", "content": ""})
-
-        for partial_answer in query_api_stream(message, mode, top_k, chat_history):
-            chat_history[-1]["content"] = partial_answer
-            yield "", chat_history
+        chat_history.append({"role": "assistant", "content": answer})
+        return "", chat_history
 
     send_btn.click(respond, [msg, chatbot, mode, top_k], [msg, chatbot])
     msg.submit(respond, [msg, chatbot, mode, top_k], [msg, chatbot])
