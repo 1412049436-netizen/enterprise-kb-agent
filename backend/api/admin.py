@@ -1,10 +1,12 @@
 """管理 API 路由 — 文档入库、统计"""
 import time
 _start_time = time.time()
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File, Depends
 from ..models.schemas import StatsResponse, IngestResponse
 from ..rag.vector_store import VectorStore
 from ..ingestion import ingest_knowledge_base, ingest_error_logs
+from ..auth.dependencies import require_admin
+from ..auth.models import User
 from ..rag.embedder import OllamaEmbedder
 from ..config import KNOWLEDGE_BASE_DIR, ERROR_LOGS_DIR
 from pathlib import Path
@@ -14,7 +16,7 @@ router = APIRouter(prefix="/api/admin")
 
 
 @router.post("/ingest", response_model=IngestResponse)
-def ingest(mode: str = "incremental"):
+def ingest(mode: str = "incremental", admin: User = Depends(require_admin)):
     """批量入库所有文档"""
     embedder = OllamaEmbedder()
     store = VectorStore()
@@ -33,7 +35,7 @@ def ingest(mode: str = "incremental"):
 
 
 @router.get("/stats", response_model=StatsResponse)
-def stats():
+def stats(admin: User = Depends(require_admin)):
     """知识库统计"""
     store = VectorStore()
     kb = store.create_or_get("knowledge_base")

@@ -2,13 +2,14 @@
 import os
 import time
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from ..models.schemas import QueryRequest, QueryStreamRequest, QueryResponse, Source
 from ..rag.embedder import OllamaEmbedder
 from ..rag.vector_store import VectorStore
 from ..rag.retriever import Retriever
 from ..rag.generator import generate, generate_stream
+from ..auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/api")
 
@@ -72,7 +73,7 @@ async def _process_queue():
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query_kb(req: QueryRequest):
+async def query_kb(req: QueryRequest, user = Depends(get_current_user)):
     """知识库问答"""
     t0 = time.time()
 
@@ -122,7 +123,7 @@ def _route(query: str) -> str:
 
 
 @router.post("/query/stream")
-async def query_kb_stream(req: QueryStreamRequest):
+async def query_kb_stream(req: QueryStreamRequest, user = Depends(get_current_user)):
     """知识库问答 — SSE 流式输出"""
     import json as json_module
     from loguru import logger

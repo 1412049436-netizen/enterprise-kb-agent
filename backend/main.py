@@ -11,6 +11,8 @@ from starlette.requests import Request
 from loguru import logger
 from .api.query import router as query_router
 from .api.admin import router as admin_router
+from .api.auth import router as auth_router
+from .auth.database import init_admin_user
 from .config import API_PORT
 
 @asynccontextmanager
@@ -24,6 +26,8 @@ async def lifespan(app: FastAPI):
     from .api.query import _process_queue
     queue_task = asyncio.create_task(_process_queue())
     app.state.queue_task = queue_task
+
+    init_admin_user()
 
     yield
 
@@ -75,6 +79,7 @@ app.add_middleware(RequestLogMiddleware)
 
 app.include_router(query_router)
 app.include_router(admin_router)
+app.include_router(auth_router)
 
 
 @app.get("/")
