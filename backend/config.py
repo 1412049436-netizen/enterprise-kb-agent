@@ -12,6 +12,16 @@ MODEL_ROOT = Path(os.getenv("MODEL_ROOT", "D:/"))
 LLM_MODEL_PATH = str(MODEL_ROOT / os.getenv("LLM_MODEL_DIR", "Qwen2.5-3B-Instruct"))
 # GGUF 量化版路径（llama.cpp 使用）
 LLM_GGUF_PATH = str(MODEL_ROOT / os.getenv("LLM_GGUF_DIR", "Qwen2.5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_m.gguf"))
+
+# ── LLM 推理服务 (llama.cpp) ─────────────────────────
+LLAMA_SERVER_BIN = str(MODEL_ROOT / os.getenv("LLAMA_SERVER_BIN", "llama-cpp-vulkan/llama-server.exe"))
+LLAMA_SERVER_URL = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080/v1/completions")
+
+# ── 生成参数 ─────────────────────────────────────────
+KB_MAX_TOKENS = int(os.getenv("KB_MAX_TOKENS", "200"))
+ERROR_MAX_TOKENS = int(os.getenv("ERROR_MAX_TOKENS", "256"))
+GENERATION_TIMEOUT = int(os.getenv("GENERATION_TIMEOUT", "180"))
+
 EMBEDDING_MODEL_PATH = str(MODEL_ROOT / os.getenv("EMBEDDING_MODEL_DIR", "bge-m3"))
 RERANKER_MODEL_PATH = str(MODEL_ROOT / os.getenv("RERANKER_MODEL_DIR", "bge-reranker-v2-m3"))
 DEVICE = os.getenv("DEVICE", None)  # None=auto, or "cpu"/"cuda"

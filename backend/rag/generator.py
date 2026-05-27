@@ -3,15 +3,13 @@ import os
 import re
 import httpx
 from loguru import logger
+from ..config import LLAMA_SERVER_URL, KB_MAX_TOKENS, ERROR_MAX_TOKENS, GENERATION_TIMEOUT
 
 # ── 提示词模板 ───────────────────────────────────────
 
 KB_SYSTEM_PROMPT = "你是企业知识库助手。严格基于提供的文档内容回答，不要编造。用中文简洁回答。"
 
 ERROR_SYSTEM_PROMPT = "你是技术报错排查助手。基于错误记录回答。匹配就给出解决方案+步骤，类似就说明'参考方案'，无匹配就说'未找到该错误记录'。用中文。"
-
-LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://127.0.0.1:8080/v1/completions")
-
 
 def build_context(sources: list[dict]) -> str:
     """将检索结果拼接为上下文"""
@@ -36,10 +34,10 @@ def generate(
     if mode == "error_logs":
         system_prompt = ERROR_SYSTEM_PROMPT
         temperature = 0.2
-        max_tokens = 256
+        max_tokens = ERROR_MAX_TOKENS
     else:
         system_prompt = KB_SYSTEM_PROMPT
-        max_tokens = 200
+        max_tokens = KB_MAX_TOKENS
 
     user_prompt = f"""文档：
 {ctx}
@@ -66,7 +64,7 @@ def generate(
                 "stop": ["<|im_end|>", "<|im_start|>"],
                 "stream": False,
             },
-            timeout=180,
+            timeout=GENERATION_TIMEOUT,
         )
         data = resp.json()
         response = data["choices"][0]["text"].strip()
