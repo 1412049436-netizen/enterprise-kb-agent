@@ -1,6 +1,7 @@
 """企业知识库问答系统 — Gradio Web UI (Gradio 6.0)"""
 import gradio as gr
 import httpx
+import json
 import os
 
 API_BASE = os.environ.get("API_BASE", "http://localhost:8000")
@@ -27,6 +28,38 @@ def query_api(message: str, mode: str, top_k: int, history: list):
         return f"请求失败: {e}"
 
 
+def query_api_stream(message: str, mode: str, top_k: int, history: list):
+    """流式查询 API，逐 token yield 累积回答"""
+    api_mode = {"知识库问答": "knowledge_base", "报错排查": "error_logs", "自动识别": "auto"}[mode]
+    answer = ""
+    sources_info = ""
+
+    try:
+        with httpx.stream(
+            "POST",
+            f"{API_BASE}/api/query/stream",
+            json={"question": message, "mode": api_mode, "top_k": top_k},
+            timeout=180,
+        ) as resp:
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    data = json.loads(line[6:])
+                    if data.get("done"):
+                        sources = data.get("sources", [])
+                        if sources:
+                            sources_info = "\n\n---\n**参考来源：**\n" + "\n".join(f"- {s}" for s in sources)
+                        yield answer + sources_info
+                        return
+                    elif data.get("error"):
+                        yield f"请求失败: {data['error']}"
+                        return
+                    else:
+                        answer += data.get("token", "")
+                        yield answer
+    except Exception as e:
+        yield f"请求失败: {e}"
+
+
 with gr.Blocks(title="企业知识库助手") as demo:
     gr.Markdown("""# 📚 企业知识库问答系统\n完全离线运行 · 基于 RAG 架构 · 支持知识库问答和报错排查""")
 
@@ -47,11 +80,15 @@ with gr.Blocks(title="企业知识库助手") as demo:
 
     def respond(message, chat_history, mode, top_k):
         if not message.strip():
-            return "", chat_history
-        answer = query_api(message, mode, top_k, chat_history)
+            yield "", chat_history
+            return
+
         chat_history.append({"role": "user", "content": message})
-        chat_history.append({"role": "assistant", "content": answer})
-        return "", chat_history
+        chat_history.append({"role": "assistant", "content": ""})
+
+        for partial_answer in query_api_stream(message, mode, top_k, chat_history):
+            chat_history[-1]["content"] = partial_answer
+            yield "", chat_history
 
     send_btn.click(respond, [msg, chatbot, mode, top_k], [msg, chatbot])
     msg.submit(respond, [msg, chatbot, mode, top_k], [msg, chatbot])
