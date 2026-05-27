@@ -20,8 +20,9 @@ env/
 !.env.docker
 !.env.example
 
-# ChromaDB data (not source, can recreate with ingest)
+# Data files (runtime artifacts, not source)
 data/chroma_db/
+data/users.db
 
 # Logs
 *.log
