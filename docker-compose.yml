@@ -7,7 +7,7 @@
 services:
   # ── LLM 推理服务 ──────────────────────────────
   llama-server:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggerganov/llama.cpp:server-vulkan
     container_name: kb-llama
     ports:
       - "8080:8080"
@@ -23,6 +23,8 @@ services:
       - "8080"
       - "-c"
       - "4096"
+      - "-ngl"
+      - "99"
     restart: unless-stopped
 
   # ── RAG 后端 + 前端 ───────────────────────────
