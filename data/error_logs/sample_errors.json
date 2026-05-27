@@ -1,0 +1,42 @@
+[
+  {
+    "error_code": "DB-001",
+    "error_message": "数据库连接超时",
+    "error_type": "数据库",
+    "system": "ERP系统",
+    "symptoms": "用户登录后无法加载数据，页面持续加载中",
+    "root_cause": "数据库连接池耗尽",
+    "solution": "1. 检查数据库连接数: SHOW PROCESSLIST;\n2. 重启数据库服务: systemctl restart mysql\n3. 调整连接池大小: max_connections=200",
+    "severity": "high"
+  },
+  {
+    "error_code": "NET-002",
+    "error_message": "VPN 连接失败",
+    "error_type": "网络",
+    "system": "VPN网关",
+    "symptoms": "远程员工无法连接内网，提示'认证失败'",
+    "root_cause": "VPN证书过期或账号被锁定",
+    "solution": "1. 检查证书有效期: openssl x509 -in cert.pem -noout -dates\n2. 检查账号锁定状态\n3. 重新生成证书并分发",
+    "severity": "medium"
+  },
+  {
+    "error_code": "APP-003",
+    "error_message": "应用服务器 502 Bad Gateway",
+    "error_type": "应用",
+    "system": "Nginx反向代理",
+    "symptoms": "访问Web应用时返回502错误",
+    "root_cause": "后端应用服务崩溃或未启动",
+    "solution": "1. 检查后端服务状态: systemctl status app-server\n2. 查看应用日志: tail -f /var/log/app/error.log\n3. 重启应用: systemctl restart app-server",
+    "severity": "critical"
+  },
+  {
+    "error_code": "DB-004",
+    "error_message": "数据查询缓慢",
+    "error_type": "数据库",
+    "system": "报表系统",
+    "symptoms": "报表生成超过30秒，用户体验差",
+    "root_cause": "缺少索引或查询未优化",
+    "solution": "1. 分析慢查询: EXPLAIN SELECT ...\n2. 添加必要索引: CREATE INDEX idx_xxx ON table(column)\n3. 考虑读写分离或缓存",
+    "severity": "medium"
+  }
+]

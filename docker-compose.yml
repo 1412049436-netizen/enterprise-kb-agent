@@ -1,0 +1,50 @@
+# Docker Compose — 企业知识库问答系统
+# 用法:
+#   启动:  docker compose up -d
+#   查看:  docker compose logs -f backend
+#   停止:  docker compose down
+
+services:
+  # ── LLM 推理服务 ──────────────────────────────
+  llama-server:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: kb-llama
+    ports:
+      - "8080:8080"
+    volumes:
+      # GGUF 模型只读挂载
+      - D:/Qwen2.5-3B-Instruct-GGUF:/models:ro
+    command:
+      - "-m"
+      - "/models/qwen2.5-3b-instruct-q4_k_m.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "-c"
+      - "4096"
+    restart: unless-stopped
+
+  # ── RAG 后端 + 前端 ───────────────────────────
+  backend:
+    build: .
+    container_name: kb-backend
+    ports:
+      - "8000:8000"
+      - "7860:7860"
+    volumes:
+      # 嵌入模型 (4.3GB) 只读
+      - D:/bge-m3:/models/bge-m3:ro
+      # Reranker 模型 (4.3GB) 只读
+      - D:/bge-reranker-v2-m3:/models/bge-reranker-v2-m3:ro
+      # 数据目录 (ChromaDB + 知识库)
+      - ./data:/app/data
+    environment:
+      - MODEL_ROOT=/models
+      - LLAMA_SERVER_URL=http://llama-server:8080/v1/completions
+      - EMBEDDING_MODEL_DIR=bge-m3
+      - RERANKER_MODEL_DIR=bge-reranker-v2-m3
+      - DEVICE=cpu
+    depends_on:
+      - llama-server
+    restart: unless-stopped

@@ -1,0 +1,20 @@
+# Docker build 忽略文件
+__pycache__
+*.pyc
+*.pyo
+.env
+.git
+.gitignore
+*.log
+server_out.log
+server_err.log
+temp_*
+docs/
+ISSUES.md
+PROGRESS.md
+UPGRADE_ISSUES.md
+.vscode
+.idea
+
+# 模型太大，通过 volume 挂载，不打包进镜像
+D:/

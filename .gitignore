@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment files (keep .env.docker as template)
+.env
+*.env
+!.env.docker
+!.env.example
+
+# ChromaDB data (not source, can recreate with ingest)
+data/chroma_db/
+
+# Logs
+*.log
+server_*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models (downloaded, not source)
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
