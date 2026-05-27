@@ -1,11 +1,12 @@
 """查询 API 路由"""
 import time
 from fastapi import APIRouter
-from ..models.schemas import QueryRequest, QueryResponse, Source
+from fastapi.responses import StreamingResponse
+from ..models.schemas import QueryRequest, QueryStreamRequest, QueryResponse, Source
 from ..rag.embedder import OllamaEmbedder
 from ..rag.vector_store import VectorStore
 from ..rag.retriever import Retriever
-from ..rag.generator import generate
+from ..rag.generator import generate, generate_stream
 
 router = APIRouter(prefix="/api")
 
@@ -84,3 +85,46 @@ def _route(query: str) -> str:
     if any(k.lower() in q or k in query for k in kb_kw):
         return "knowledge_base"
     return "knowledge_base"  # 默认知识库
+
+
+@router.post("/query/stream")
+async def query_kb_stream(req: QueryStreamRequest):
+    """知识库问答 — SSE 流式输出"""
+    import json as json_module
+
+    retriever = get_retriever()
+
+    if req.mode == "auto":
+        mode = _route(req.question)
+    else:
+        mode = req.mode
+
+    collection = "error_logs" if mode == "error_logs" else "knowledge_base"
+    sources = retriever.retrieve(req.question, collection, req.top_k)
+
+    if not sources and mode == "knowledge_base":
+        sources = retriever.retrieve(req.question, "error_logs", req.top_k)
+        mode = "error_logs" if sources else mode
+
+    async def event_stream():
+        full_answer = ""
+        try:
+            for token in generate_stream(req.question, sources, mode):
+                full_answer += token
+                yield f"data: {json_module.dumps({'token': token})}\n\n"
+        except Exception as e:
+            yield f"data: {json_module.dumps({'error': str(e)})}\n\n"
+        finally:
+            # Apply hallucination cleanup to the assembled response
+            from ..rag.generator import _clean_response
+            cleaned = _clean_response(full_answer)
+            yield f"data: {json_module.dumps({'done': True, 'full_answer': cleaned, 'sources': [s['title'] for s in sources]})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
