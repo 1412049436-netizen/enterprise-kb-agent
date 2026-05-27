@@ -1,131 +1,131 @@
-# Production Readiness Optimization — Design Spec
+# 生产就绪优化 — 设计规范
 
 > 2026-05-27 | enterprise-kb-agent | v0.6 → v1.0
 
-## Goal
+## 目标
 
-Make the enterprise-kb-agent production-ready for 50+ concurrent users on current hardware (GTX 1650 Ti 4GB), with a clean upgrade path to future GPUs.
+将 enterprise-kb-agent 优化到可在 GTX 1650 Ti 4GB 上支撑 50+ 用户的生产就绪水平，并为后续 GPU 升级留好接口。
 
-## Constraints
+## 约束条件
 
-- C: drive must keep ≥ 5GB free (currently 12.8GB, no writes planned)
-- D: drive has 26.3GB free, additional 12GB reclaimable (deprecated Qwen2.5-3B-Instruct)
-- GTX 1650 Ti 4GB VRAM — only the 1.96GB GGUF LLM fits; embedding/reranker models stay on CPU
-- No system-level CUDA Toolkit installation — use Vulkan backend or self-contained CUDA wheel
-
----
-
-## Phase 1: Performance Breakthrough
-
-### 1.1 LLM Inference: CPU → GPU via Vulkan
-
-**Current**: llama.cpp CPU binary, 5.9 tok/s.
-**Target**: llama.cpp Vulkan binary, estimated 15-25 tok/s on GTX 1650 Ti.
-
-The Vulkan backend requires no CUDA Toolkit — Windows ships Vulkan drivers for NVIDIA GPUs. The GGUF model (1.96GB) fits in 4GB VRAM with room for KV cache.
-
-**Fallback**: If Vulkan underperforms, use `llama-cpp-python` with pre-built CUDA wheel (bundles its own CUDA DLLs).
-
-**Files changed**: `backend/rag/generator.py` (point LLAMA_SERVER_URL to Vulkan binary), download new llama.cpp Vulkan binary to `D:\llama-cpp-vulkan\`.
-
-### 1.2 Streaming Output
-
-**Current**: `generator.py` uses `"stream": false`, waits for full generation.
-**Target**: SSE streaming via FastAPI `StreamingResponse`.
-
-- `generator.py`: add `generate_stream()` generator function, yields tokens as they arrive
-- `backend/api/query.py`: new `/api/query/stream` endpoint returning `text/event-stream`
-- `frontend/app.py`: Gradio chatbot consumes stream, renders tokens incrementally
-
-**Perceived latency**: first token in < 1s instead of waiting for all 200 tokens.
-
-### 1.3 Lazy Model Loading
-
-**Current**: BGE-M3 (8.6GB) + Reranker (4.3GB) load at FastAPI import time → ~30s startup.
-**Target**: Load on first request.
-
-- `OllamaEmbedder`: defer `BGEM3FlagModel()` init to first `embed()` call
-- `Retriever._get_reranker()`: already lazy, no change needed
-- `backend/main.py`: lifespan startup reduced to config validation only
-
-**Startup time**: 30s → 2-3s. First query pays the model-loading cost (~30s), subsequent queries instant.
-
-### Performance Targets
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Backend startup | ~30s | 2-3s |
-| Inference speed | 5.9 tok/s (CPU) | 15-25 tok/s (Vulkan) |
-| End-to-end answer | 20-64s | 4-12s |
-| Time-to-first-token | N/A (batch) | < 1s |
+- C 盘必须保持 ≥ 5GB 空闲（当前 12.8GB，本次优化不往 C 盘写入）
+- D 盘当前 26.3GB 空闲，另可回收 12GB（已废弃的 Qwen2.5-3B-Instruct）
+- GTX 1650 Ti 仅 4GB 显存 — 只有 1.96GB 的 GGUF 大模型放得进去；嵌入模型和 Reranker 继续用 CPU
+- 不安装系统级 CUDA Toolkit — 使用 Vulkan 后端或自带 DLL 的 CUDA wheel
 
 ---
 
-## Phase 2: One-Click Deploy
+## 阶段 1：性能突破
 
-### 2.1 Create `scripts/ingest.py`
+### 1.1 LLM 推理：CPU → GPU（Vulkan）
 
-README references `python scripts/ingest.py` but the file doesn't exist. Create it by extracting the ingestion logic from `admin.py`'s `/api/admin/ingest` endpoint into a shared function, callable from both CLI and API.
+**现状**：llama.cpp 纯 CPU 版，5.9 tok/s。
+**目标**：llama.cpp Vulkan 版，预计 GTX 1650 Ti 上 15-25 tok/s。
 
-### 2.2 Docker Compose with Vulkan
+Vulkan 后端无需安装 CUDA Toolkit — Windows 自带 NVIDIA Vulkan 驱动。GGUF 模型（1.96GB）放进 4GB 显存后还有余量给 KV cache。
 
-Update `docker-compose.yml` llama-server service to use Vulkan-enabled image. Add device passthrough for GPU.
+**备用方案**：如果 Vulkan 效果不理想，改用 `llama-cpp-python` 的预编译 CUDA wheel（自带所需 CUDA DLL，无需系统安装）。
 
-### 2.3 Startup Script
+**涉及文件**：`backend/rag/generator.py`（LLAMA_SERVER_URL 指向 Vulkan 版二进制），下载新的 llama.cpp Vulkan 二进制到 `D:\llama-cpp-vulkan\`。
 
-`start.bat` (Windows): starts llama-server → waits → starts FastAPI → starts Gradio. One double-click instead of three terminals.
+### 1.2 流式输出
 
----
+**现状**：`generator.py` 使用 `"stream": false`，等模型生成完 200 tokens 才一次性返回。
+**目标**：通过 FastAPI `StreamingResponse` 实现 SSE 流式输出。
 
-## Phase 3: Dead Code Removal
+- `generator.py`：新增 `generate_stream()` 生成器函数，逐 token yield
+- `backend/api/query.py`：新增 `/api/query/stream` 端点，返回 `text/event-stream`
+- `frontend/app.py`：Gradio 前端实时消费流，逐 token 显示
 
-### 3.1 Delete `scripts/check_ollama.py`
+**体感延迟**：首 token < 1 秒出字，不用干等全部生成完毕。
 
-References `_load_llm()` function that no longer exists (generator was rewritten to llama-server HTTP API in v0.6).
+### 1.3 模型懒加载
 
-### 3.2 Delete `D:\Qwen2.5-3B-Instruct` (12GB)
+**现状**：BGE-M3（8.6GB）+ Reranker（4.3GB）在 FastAPI import 时就加载 → 启动约 30s。
+**目标**：首次请求时才加载。
 
-Marked deprecated in PROGRESS.md. Replaced by GGUF version.
+- `OllamaEmbedder`：把 `BGEM3FlagModel()` 初始化推迟到第一次 `embed()` 调用
+- `Retriever._get_reranker()`：已经是懒加载，无需改动
+- `backend/main.py`：启动流程精简为只做配置校验
 
-### 3.3 Deduplicate Ingestion Logic
+**启动时间**：30s → 2-3s。第一个请求承担模型加载成本（约 30s），后续请求即时响应。
 
-`admin.py:ingest()` (~60 lines) duplicates what `scripts/ingest.py` should do. Extract shared `ingest_knowledge_base()` and `ingest_error_logs()` functions into `backend/ingestion/__init__.py`. Both the API endpoint and the CLI script call the same functions.
+### 性能目标
 
----
-
-## Phase 4: Configuration + Testing
-
-### 4.1 Centralize Config
-
-Move hardcoded values into `config.py`:
-
-| Location | Hardcoded Value | New Config Key |
-|----------|----------------|----------------|
-| `retriever.py:64` | `0.20` threshold | Already exists: `SIMILARITY_THRESHOLD` — use it |
-| `retriever.py:57` | `0.7/0.3` fusion weights | `DENSE_WEIGHT`, `SPARSE_WEIGHT` |
-| `generator.py:39` | `max_tokens=256` (error) | `ERROR_MAX_TOKENS` |
-| `generator.py:42` | `max_tokens=200` (kb) | `KB_MAX_TOKENS` |
-
-### 4.2 Unit Tests
-
-Add `tests/` directory with pytest:
-
-- `tests/test_retriever.py`: dense/sparse fusion math, threshold filtering, rerank result ordering
-- `tests/test_documents.py`: chunk splitting, overlap, Markdown header parsing
-
-Target: 80% coverage on `rag/` and `ingestion/` modules.
+| 指标 | 优化前 | 优化后 |
+|------|--------|--------|
+| 后端启动 | ~30s | 2-3s |
+| 推理速度 | 5.9 tok/s（CPU） | 15-25 tok/s（Vulkan） |
+| 端到端回答 | 20-64s | 4-12s |
+| 首字延迟 | 无（等全部） | < 1s |
 
 ---
 
-## Phase 5: Production Hardening
+## 阶段 2：一键部署
 
-### 5.1 Request Queue
+### 2.1 补 `scripts/ingest.py`
 
-`asyncio.Queue` with max concurrency = 1 (single model can't parallelize). Returns 503 if queue full. Prevents OOM from concurrent embedding + generation.
+README 写明了 `python scripts/ingest.py` 但这个文件不存在。将 `admin.py` 的 `/api/admin/ingest` 端点中的入库逻辑提取为共享函数，CLI 脚本和 API 端点共用。
 
-### 5.2 Enhanced Health Check
+### 2.2 Docker Compose 适配 Vulkan
 
-`/api/admin/health` returns:
+更新 `docker-compose.yml`，llama-server 服务改用 Vulkan 版镜像，添加 GPU 设备直通。
+
+### 2.3 启动脚本
+
+`start.bat`（Windows）：一键启动 llama-server → 等待就绪 → 启动 FastAPI → 启动 Gradio。一个双击代替三个终端。
+
+---
+
+## 阶段 3：死代码清理
+
+### 3.1 删除 `scripts/check_ollama.py`
+
+引用的 `_load_llm()` 函数在 v0.6 重写后已不存在，脚本直接跑不起来。
+
+### 3.2 删除 `D:\Qwen2.5-3B-Instruct`（12GB）
+
+PROGRESS.md 已标注"已废弃"，已被 GGUF 量化版替代。
+
+### 3.3 消除入库逻辑重复
+
+`admin.py:ingest()`（约 60 行）和本该存在的 `scripts/ingest.py` 是同一件事。提取 `ingest_knowledge_base()` 和 `ingest_error_logs()` 到 `backend/ingestion/__init__.py`，API 端点和 CLI 脚本共用。
+
+---
+
+## 阶段 4：配置 + 测试
+
+### 4.1 配置统一
+
+将散落的硬编码值收敛到 `config.py`：
+
+| 位置 | 硬编码值 | 新配置键 |
+|------|---------|---------|
+| `retriever.py:64` | `0.20` 阈值 | 已存在 `SIMILARITY_THRESHOLD` — 直接用 |
+| `retriever.py:57` | `0.7/0.3` 融合权重 | `DENSE_WEIGHT`、`SPARSE_WEIGHT` |
+| `generator.py:39` | `max_tokens=256`（报错模式） | `ERROR_MAX_TOKENS` |
+| `generator.py:42` | `max_tokens=200`（知识库模式） | `KB_MAX_TOKENS` |
+
+### 4.2 单元测试
+
+新建 `tests/` 目录，使用 pytest：
+
+- `tests/test_retriever.py`：dense/sparse 融合计算、阈值过滤、rerank 排序结果
+- `tests/test_documents.py`：chunk 切分、重叠处理、Markdown 标题解析
+
+目标：`rag/` 和 `ingestion/` 模块 80% 覆盖率。
+
+---
+
+## 阶段 5：生产加固
+
+### 5.1 请求队列
+
+`asyncio.Queue` + 最大并发数 = 1（单模型无法并行推理）。队列满时返回 503，防止并发请求导致 OOM。
+
+### 5.2 增强健康检查
+
+`/api/admin/health` 返回：
 ```json
 {
   "status": "ok",
@@ -135,27 +135,27 @@ Target: 80% coverage on `rag/` and `ingestion/` modules.
 }
 ```
 
-### 5.3 Structured Logging
+### 5.3 结构化日志
 
-Add request_id to each log line. JSON format for log aggregation. Log latency per phase (embed, retrieve, rerank, generate).
-
----
-
-## What We're NOT Doing
-
-- **Not switching embedding/reranker models to GPU**: 4GB VRAM is too small for 8.6GB + 4.3GB models. These stay on CPU until hardware upgrade.
-- **Not adding authentication**: out of scope for this optimization round.
-- **Not migrating away from ChromaDB**: it works for the current scale. Revisit at 100K+ documents.
-- **Not rewriting in another language**: Python + FastAPI is appropriate for this workload.
+每条日志带 request_id。JSON 格式输出，方便后续对接日志聚合系统。记录每个阶段（embed、retrieve、rerank、generate）的耗时。
 
 ---
 
-## File Change Summary
+## 不做什么
 
-| Phase | Files |
-|-------|-------|
-| 1 | `backend/rag/generator.py`, `backend/main.py`, `backend/api/query.py`, `frontend/app.py` |
-| 2 | `scripts/ingest.py` (new), `start.bat` (new), `docker-compose.yml`, `backend/ingestion/__init__.py` |
-| 3 | Delete: `scripts/check_ollama.py`, `D:\Qwen2.5-3B-Instruct`; Refactor: `backend/api/admin.py` |
-| 4 | `backend/config.py`, `backend/rag/retriever.py`, `tests/` (new) |
-| 5 | `backend/api/query.py`, `backend/api/admin.py`, `backend/main.py` |
+- **不把嵌入/Reranker 模型搬上 GPU**：4GB 显存放不下 8.6GB + 4.3GB 的模型组合，等硬件升级后再做
+- **不加认证系统**：本轮优化不涉及
+- **不换向量数据库**：当前 ChromaDB 够用，文档量到 10 万级别再考虑换
+- **不换编程语言**：Python + FastAPI 适合这个规模的负载
+
+---
+
+## 文件变更总览
+
+| 阶段 | 涉及文件 |
+|------|---------|
+| 1 | `backend/rag/generator.py`、`backend/main.py`、`backend/api/query.py`、`frontend/app.py` |
+| 2 | `scripts/ingest.py`（新）、`start.bat`（新）、`docker-compose.yml`、`backend/ingestion/__init__.py` |
+| 3 | 删除：`scripts/check_ollama.py`、`D:\Qwen2.5-3B-Instruct`；重构：`backend/api/admin.py` |
+| 4 | `backend/config.py`、`backend/rag/retriever.py`、`tests/`（新目录） |
+| 5 | `backend/api/query.py`、`backend/api/admin.py`、`backend/main.py` |
